@@ -1,0 +1,27 @@
+# Base inference service Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY schemas/ ./schemas/
+COPY features/ ./features/
+COPY models/ ./models/
+COPY services/${SERVICE_NAME}/ ./service/
+
+# Set working directory to service
+WORKDIR /app/service
+
+# Expose port
+EXPOSE ${PORT:-8080}
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD python -c "import requests; requests.get('http://localhost:${PORT:-8080}/health').raise_for_status()"
+
+# Run service
+CMD ["gunicorn", "app:app", "-b", "0.0.0.0:${PORT:-8080}", "--workers=4", "--timeout=30"]

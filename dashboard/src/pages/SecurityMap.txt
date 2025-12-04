@@ -1,0 +1,527 @@
+﻿import { useState, useEffect } from 'react'
+import {
+  Box,
+  Card,
+  CardContent,
+  Grid,
+  Typography,
+  TextField,
+  Button,
+  Chip,
+  Stack,
+  Paper,
+  ToggleButton,
+  ToggleButtonGroup,
+  Divider,
+} from '@mui/material'
+import {
+  MyLocation,
+  LocalPolice,
+  Security,
+  Train,
+  LocalParking,
+  Navigation,
+  Search,
+  Layers,
+  Route,
+  CheckCircle,
+  Warning,
+} from '@mui/icons-material'
+import { Loader } from '@googlemaps/js-api-loader'
+
+interface Checkpoint {
+  id: string
+  type: 'police' | 'ndlea' | 'railway' | 'parking'
+  name: string
+  lat: number
+  lng: number
+  status: 'active' | 'inactive'
+  personnel?: number
+  lastUpdate?: string
+}
+
+const GOOGLE_MAPS_API_KEY = 'AIzaSyBpN8_your_actual_key_here' // Replace with actual key
+
+// Mock checkpoint data for Nigeria
+const mockCheckpoints: Checkpoint[] = [
+  // Police Checkpoints
+  { id: 'p1', type: 'police', name: 'Garki Police Checkpoint', lat: 9.0420, lng: 7.4910, status: 'active', personnel: 8, lastUpdate: '2 mins ago' },
+  { id: 'p2', type: 'police', name: 'Wuse Police Post', lat: 9.0574, lng: 7.4898, status: 'active', personnel: 6, lastUpdate: '5 mins ago' },
+  { id: 'p3', type: 'police', name: 'Airport Road Checkpoint', lat: 9.0765, lng: 7.2631, status: 'active', personnel: 12, lastUpdate: '1 min ago' },
+  { id: 'p4', type: 'police', name: 'Asokoro Security Post', lat: 9.0290, lng: 7.5340, status: 'active', personnel: 10, lastUpdate: '3 mins ago' },
+  
+  // NDLEA Checkpoints
+  { id: 'n1', type: 'ndlea', name: 'Abuja-Kaduna Highway NDLEA', lat: 9.1500, lng: 7.3800, status: 'active', personnel: 15, lastUpdate: '4 mins ago' },
+  { id: 'n2', type: 'ndlea', name: 'Kubwa NDLEA Station', lat: 9.1000, lng: 7.3500, status: 'active', personnel: 20, lastUpdate: '6 mins ago' },
+  { id: 'n3', type: 'ndlea', name: 'Nyanya Border NDLEA', lat: 8.9900, lng: 7.5500, status: 'active', personnel: 18, lastUpdate: '2 mins ago' },
+  
+  // Railway Stations
+  { id: 'r1', type: 'railway', name: 'Idu Railway Station', lat: 9.0100, lng: 7.3800, status: 'active', lastUpdate: '1 min ago' },
+  { id: 'r2', type: 'railway', name: 'Kubwa Railway Station', lat: 9.1100, lng: 7.3400, status: 'active', lastUpdate: '3 mins ago' },
+  { id: 'r3', type: 'railway', name: 'Rigasa Railway Terminal', lat: 10.5800, lng: 7.4200, status: 'active', lastUpdate: '5 mins ago' },
+  
+  // Car Parks
+  { id: 'c1', type: 'parking', name: 'Garki Model Market Park', lat: 9.0380, lng: 7.4950, status: 'active', lastUpdate: '2 mins ago' },
+  { id: 'c2', type: 'parking', name: 'Utako Motor Park', lat: 9.0700, lng: 7.4400, status: 'active', lastUpdate: '4 mins ago' },
+  { id: 'c3', type: 'parking', name: 'Jabi Motor Park', lat: 9.0850, lng: 7.4100, status: 'active', lastUpdate: '1 min ago' },
+  { id: 'c4', type: 'parking', name: 'Nyanya Motor Park', lat: 8.9950, lng: 7.5450, status: 'active', lastUpdate: '3 mins ago' },
+]
+
+export default function SecurityMap() {
+  const [map, setMap] = useState<google.maps.Map | null>(null)
+  const [markers, setMarkers] = useState<google.maps.Marker[]>([])
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(['police', 'ndlea', 'railway', 'parking'])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [nearestCheckpoint, setNearestCheckpoint] = useState<Checkpoint | null>(null)
+  const [directionsRenderer, setDirectionsRenderer] = useState<google.maps.DirectionsRenderer | null>(null)
+  
+  const filteredCheckpoints = mockCheckpoints.filter(cp => 
+    selectedTypes.includes(cp.type) && 
+    cp.name.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  // Initialize Google Maps
+  useEffect(() => {
+    const loader = new Loader({
+      apiKey: GOOGLE_MAPS_API_KEY,
+      version: 'weekly',
+      libraries: ['places', 'geometry']
+    })
+
+    // @ts-ignore - Loader API compatibility
+    loader.load().then(() => {
+      const defaultCenter = { lat: 9.0765, lng: 7.3986 } // Abuja, Nigeria
+      
+      const mapInstance = new google.maps.Map(
+        document.getElementById('security-map') as HTMLElement,
+        {
+          center: defaultCenter,
+          zoom: 12,
+          mapTypeControl: true,
+          fullscreenControl: true,
+          streetViewControl: true,
+          zoomControl: true,
+          styles: [
+            {
+              featureType: 'poi',
+              elementType: 'labels',
+              stylers: [{ visibility: 'on' }]
+            }
+          ]
+        }
+      )
+
+      const renderer = new google.maps.DirectionsRenderer({
+        map: mapInstance,
+        suppressMarkers: false,
+      })
+
+      setMap(mapInstance)
+      setDirectionsRenderer(renderer)
+      getUserLocation()
+    })
+  }, [])
+
+  // Get user's current location
+  const getUserLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const location = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          }
+          setUserLocation(location)
+          
+          if (map) {
+            new google.maps.Marker({
+              position: location,
+              map: map,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 10,
+                fillColor: '#4285F4',
+                fillOpacity: 1,
+                strokeColor: '#ffffff',
+                strokeWeight: 3,
+              },
+              title: 'Your Location'
+            })
+            map.setCenter(location)
+          }
+        },
+        () => {
+          console.log('Location permission denied')
+        }
+      )
+    }
+  }
+
+  // Update markers when filters change
+  useEffect(() => {
+    if (!map) return
+
+    // Clear existing markers
+    markers.forEach(marker => marker.setMap(null))
+
+    // Create new markers
+    const newMarkers = filteredCheckpoints.map(checkpoint => {
+      const icon = getMarkerIcon(checkpoint.type)
+      
+      const marker = new google.maps.Marker({
+        position: { lat: checkpoint.lat, lng: checkpoint.lng },
+        map: map,
+        title: checkpoint.name,
+        icon: icon,
+      })
+
+      const infoWindow = new google.maps.InfoWindow({
+        content: `
+          <div style="padding: 10px;">
+            <h3 style="margin: 0 0 8px 0; color: #1a1a1a;">${checkpoint.name}</h3>
+            <p style="margin: 4px 0; color: #666;">
+              <strong>Type:</strong> ${checkpoint.type.toUpperCase()}
+            </p>
+            ${checkpoint.personnel ? `
+              <p style="margin: 4px 0; color: #666;">
+                <strong>Personnel:</strong> ${checkpoint.personnel}
+              </p>
+            ` : ''}
+            <p style="margin: 4px 0; color: #666;">
+              <strong>Status:</strong> 
+              <span style="color: ${checkpoint.status === 'active' ? '#4caf50' : '#f44336'};">
+                ${checkpoint.status.toUpperCase()}
+              </span>
+            </p>
+            <p style="margin: 4px 0; color: #999; font-size: 12px;">
+              Updated: ${checkpoint.lastUpdate}
+            </p>
+          </div>
+        `
+      })
+
+      marker.addListener('click', () => {
+        infoWindow.open(map, marker)
+      })
+
+      return marker
+    })
+
+    setMarkers(newMarkers)
+
+    // Find nearest checkpoint if user location is available
+    if (userLocation && filteredCheckpoints.length > 0) {
+      findNearestCheckpoint(userLocation)
+    }
+  }, [map, filteredCheckpoints, userLocation])
+
+  const getMarkerIcon = (type: string) => {
+    const colors = {
+      police: '#1976d2',
+      ndlea: '#d32f2f',
+      railway: '#388e3c',
+      parking: '#f57c00',
+    }
+
+    return {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 8,
+      fillColor: colors[type as keyof typeof colors],
+      fillOpacity: 0.9,
+      strokeColor: '#ffffff',
+      strokeWeight: 2,
+    }
+  }
+
+  const findNearestCheckpoint = (location: { lat: number; lng: number }) => {
+    let nearest: Checkpoint | null = null
+    let minDistance = Infinity
+
+    filteredCheckpoints.forEach(checkpoint => {
+      const distance = calculateDistance(
+        location.lat,
+        location.lng,
+        checkpoint.lat,
+        checkpoint.lng
+      )
+
+      if (distance < minDistance) {
+        minDistance = distance
+        nearest = checkpoint
+      }
+    })
+
+    setNearestCheckpoint(nearest)
+  }
+
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371 // Radius of Earth in km
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon/2) * Math.sin(dLon/2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+    return R * c
+  }
+
+  const navigateToCheckpoint = (checkpoint: Checkpoint) => {
+    if (!map || !directionsRenderer || !userLocation) {
+      alert('Please enable location services to use navigation')
+      return
+    }
+
+    const directionsService = new google.maps.DirectionsService()
+
+    directionsService.route(
+      {
+        origin: userLocation,
+        destination: { lat: checkpoint.lat, lng: checkpoint.lng },
+        travelMode: google.maps.TravelMode.DRIVING,
+      },
+      (result, status) => {
+        if (status === 'OK' && result) {
+          directionsRenderer.setDirections(result)
+        } else {
+          alert('Could not calculate route')
+        }
+      }
+    )
+  }
+
+  const handleTypeToggle = (_event: React.MouseEvent<HTMLElement>, newTypes: string[]) => {
+    if (newTypes.length > 0) {
+      setSelectedTypes(newTypes)
+    }
+  }
+
+  return (
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h4" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>
+        ðŸ—ºï¸ Security Navigation & Monitoring
+      </Typography>
+
+      <Grid container spacing={3}>
+        {/* Left Sidebar - Controls */}
+        <Grid item xs={12} md={3}>
+          <Stack spacing={2}>
+            {/* Citizen Search Button */}
+            <Button
+              variant="contained"
+              size="large"
+              fullWidth
+              startIcon={<Search />}
+              onClick={() => window.location.href = '/citizen-search'}
+              sx={{
+                py: 1.5,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+                }
+              }}
+            >
+              Citizen Search
+            </Button>
+
+            {/* Location Controls */}
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <MyLocation /> Your Location
+                </Typography>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  startIcon={<Navigation />}
+                  onClick={getUserLocation}
+                  sx={{ mt: 1 }}
+                >
+                  Update Location
+                </Button>
+                {userLocation && (
+                  <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'text.secondary' }}>
+                    {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}
+                  </Typography>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Filter Checkpoints */}
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Layers /> Filter Locations
+                </Typography>
+                
+                <ToggleButtonGroup
+                  value={selectedTypes}
+                  onChange={handleTypeToggle}
+                  orientation="vertical"
+                  fullWidth
+                  sx={{ mt: 2 }}
+                >
+                  <ToggleButton value="police" sx={{ justifyContent: 'flex-start', gap: 1 }}>
+                    <LocalPolice /> Police ({mockCheckpoints.filter(c => c.type === 'police').length})
+                  </ToggleButton>
+                  <ToggleButton value="ndlea" sx={{ justifyContent: 'flex-start', gap: 1 }}>
+                    <Security /> NDLEA ({mockCheckpoints.filter(c => c.type === 'ndlea').length})
+                  </ToggleButton>
+                  <ToggleButton value="railway" sx={{ justifyContent: 'flex-start', gap: 1 }}>
+                    <Train /> Railway ({mockCheckpoints.filter(c => c.type === 'railway').length})
+                  </ToggleButton>
+                  <ToggleButton value="parking" sx={{ justifyContent: 'flex-start', gap: 1 }}>
+                    <LocalParking /> Parking ({mockCheckpoints.filter(c => c.type === 'parking').length})
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </CardContent>
+            </Card>
+
+            {/* Nearest Checkpoint */}
+            {nearestCheckpoint && userLocation && (
+              <Card sx={{ bgcolor: 'primary.main', color: 'white' }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Route /> Nearest Checkpoint
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600, mb: 1 }}>
+                    {nearestCheckpoint.name}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 2, opacity: 0.9 }}>
+                    {nearestCheckpoint.type.toUpperCase()} â€¢ {nearestCheckpoint.status}
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    fullWidth
+                    startIcon={<Navigation />}
+                    onClick={() => navigateToCheckpoint(nearestCheckpoint)}
+                    sx={{
+                      bgcolor: 'white',
+                      color: 'primary.main',
+                      '&:hover': { bgcolor: 'grey.100' }
+                    }}
+                  >
+                    Navigate Here
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Search */}
+            <TextField
+              fullWidth
+              placeholder="Search checkpoints..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />
+              }}
+            />
+          </Stack>
+        </Grid>
+
+        {/* Center - Map */}
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: '700px' }}>
+            <Box
+              id="security-map"
+              sx={{
+                width: '100%',
+                height: '100%',
+                borderRadius: 1,
+              }}
+            />
+          </Card>
+        </Grid>
+
+        {/* Right Sidebar - Checkpoint List */}
+        <Grid item xs={12} md={3}>
+          <Card sx={{ height: '700px', overflow: 'auto' }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Active Locations ({filteredCheckpoints.length})
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              
+              <List>
+                {filteredCheckpoints.map((checkpoint) => (
+                  <Paper
+                    key={checkpoint.id}
+                    elevation={1}
+                    sx={{ mb: 2, p: 1.5, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                    onClick={() => {
+                      if (map) {
+                        map.setCenter({ lat: checkpoint.lat, lng: checkpoint.lng })
+                        map.setZoom(15)
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                      <Box sx={{ mt: 0.5 }}>
+                        {checkpoint.type === 'police' && <LocalPolice color="primary" />}
+                        {checkpoint.type === 'ndlea' && <Security color="error" />}
+                        {checkpoint.type === 'railway' && <Train color="success" />}
+                        {checkpoint.type === 'parking' && <LocalParking color="warning" />}
+                      </Box>
+                      
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                          {checkpoint.name}
+                        </Typography>
+                        <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+                          <Chip
+                            label={checkpoint.type.toUpperCase()}
+                            size="small"
+                            color={
+                              checkpoint.type === 'police' ? 'primary' :
+                              checkpoint.type === 'ndlea' ? 'error' :
+                              checkpoint.type === 'railway' ? 'success' : 'warning'
+                            }
+                          />
+                          <Chip
+                            icon={checkpoint.status === 'active' ? <CheckCircle /> : <Warning />}
+                            label={checkpoint.status}
+                            size="small"
+                            color={checkpoint.status === 'active' ? 'success' : 'default'}
+                          />
+                        </Stack>
+                        {checkpoint.personnel && (
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+                            ðŸ‘® {checkpoint.personnel} personnel on duty
+                          </Typography>
+                        )}
+                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                          Updated: {checkpoint.lastUpdate}
+                        </Typography>
+                        
+                        {userLocation && (
+                          <Button
+                            size="small"
+                            startIcon={<Navigation />}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              navigateToCheckpoint(checkpoint)
+                            }}
+                            sx={{ mt: 1 }}
+                          >
+                            Navigate
+                          </Button>
+                        )}
+                      </Box>
+                    </Box>
+                  </Paper>
+                ))}
+              </List>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+    </Box>
+  )
+}
+
+
+  List,
+  ListItem,
+  ListItemText,

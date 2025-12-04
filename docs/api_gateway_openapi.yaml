@@ -1,0 +1,549 @@
+openapi: 3.0.3
+info:
+  title: AI Gateway - Secure Ingest & Control API
+  version: "1.0.0"
+  description: |
+    Production-grade API for drone/edge → AI → agency pipeline.
+    
+    **Security Requirements:**
+    - mTLS client certificates (terminated by Nginx/Envoy)
+    - JWT bearer tokens for operator authentication
+    - Device attestation (TPM/Secure Enclave)
+    - HSM signing for all control tokens
+    - Immutable audit trail (WORM storage)
+    
+    **Compliance:**
+    - NDPR 2019 (Nigerian Data Protection Regulation)
+    - Cybercrime Act 2015
+    - IEC 62443 (ICS/SCADA safety)
+    
+    **For NCC/NIMC/CBN/Ministry Approvals**
+    
+  contact:
+    name: Security AI Platform
+    email: api@securityai.gov.ng
+  
+servers:
+  - url: https://ai-gateway.securityai.gov.ng
+    description: Production Gateway
+  - url: https://sandbox.securityai.gov.ng
+    description: Sandbox Environment
+
+security:
+  - mTLSAuth: []
+  - bearerAuth: []
+
+paths:
+  /v1/ingest/template:
+    post:
+      summary: Ingest encrypted template from edge device
+      description: |
+        Edge device (drone/camera/controller) submits encrypted biometric template
+        or sensor data with device attestation.
+        
+        **Security Flow:**
+        1. mTLS handshake (client cert validation)
+        2. JWT bearer token verification
+        3. Device attestation validation (TPM/SE signature)
+        4. Event signing (HSM)
+        5. Publish to Kafka topic (encrypted in transit)
+        
+        **Privacy:**
+        - Template encrypted with AES-256-GCM
+        - No raw PII transmitted
+        - Tokenized matching at identity service
+        
+      operationId: ingestTemplate
+      tags:
+        - Ingest
+      
+      security:
+        - mTLSAuth: []
+        - bearerAuth: []
+      
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestPayload'
+            examples:
+              fire_detection:
+                summary: Fire detection from drone
+                value:
+                  device_id: "drone-fire-001"
+                  timestamp: "2025-11-27T14:30:00Z"
+                  location:
+                    lat: 9.0765
+                    lon: 7.3986
+                    accuracy_m: 5
+                    altitude_m: 150
+                  encrypted_template: "base64_encrypted_fire_detection_data"
+                  template_type: "fire_detection"
+                  metadata:
+                    confidence: 0.92
+                    severity: "high"
+                    smoke_density: "high"
+                    flame_detected: true
+                  attestation: "base64_tpm_attestation_token"
+              
+              face_embedding:
+                summary: Face embedding from surveillance
+                value:
+                  device_id: "traffic-cam-045"
+                  timestamp: "2025-11-27T10:15:00Z"
+                  location:
+                    lat: 6.6018
+                    lon: 3.3515
+                    accuracy_m: 2
+                  encrypted_template: "base64_encrypted_facenet_embedding"
+                  template_type: "face_embedding"
+                  metadata:
+                    confidence: 0.87
+                    face_quality: "high"
+                  attestation: "base64_tpm_attestation_token"
+      
+      responses:
+        '202':
+          description: Accepted - event queued for processing
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "accepted"
+                  event_id:
+                    type: string
+                    example: "evt-20251127143000-drone-fire-001"
+                  signature:
+                    type: string
+                    description: HSM signature of event (hex)
+                  queued_at:
+                    type: string
+                    format: date-time
+        
+        '400':
+          description: Invalid attestation or malformed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        
+        '401':
+          description: Invalid or expired JWT token
+        
+        '403':
+          description: Device not authorized or cert mismatch
+        
+        '429':
+          description: Rate limit exceeded
+
+  /v1/cases/create:
+    post:
+      summary: Create operator review case
+      description: |
+        System creates a case requiring human operator review before action.
+        
+        **Use Cases:**
+        - Identity match above threshold → review before traffic control
+        - Fire detection → review before automated notification
+        - Police alert → analyst approval before dispatch
+        
+        **Approval Requirements:**
+        - Standard cases: 1 operator approval
+        - Traffic control: 2 operator approvals (dual authorization)
+        - Critical alerts: Senior operator + admin approval
+        
+      operationId: createCase
+      tags:
+        - Cases
+      
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseCreationRequest'
+      
+      responses:
+        '201':
+          description: Case created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  case_id:
+                    type: string
+                    example: "case-20251127143000-identity_match"
+                  status:
+                    type: string
+                    example: "pending_review"
+                  signature:
+                    type: string
+        
+        '400':
+          description: Invalid request
+        
+        '401':
+          description: Unauthorized
+
+  /v1/cases/{case_id}/approve:
+    post:
+      summary: Operator approves/rejects case
+      description: |
+        Authorized operator reviews case evidence and approves/rejects action.
+        
+        **Dual Authorization:**
+        For critical actions (traffic control, law enforcement dispatch),
+        system requires 2 independent operator approvals.
+        
+        **Audit Trail:**
+        All approvals signed and logged to immutable audit trail (WORM).
+        
+      operationId: approveCase
+      tags:
+        - Cases
+      
+      parameters:
+        - name: case_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "case-20251127143000-identity_match"
+      
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OperatorApproval'
+      
+      responses:
+        '200':
+          description: Approval recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  case_id:
+                    type: string
+                  approval_recorded:
+                    type: boolean
+                  signature:
+                    type: string
+        
+        '403':
+          description: Insufficient permissions
+        
+        '404':
+          description: Case not found
+
+  /v1/control/issue-token:
+    post:
+      summary: Issue signed control token for actuator
+      description: |
+        **CRITICAL SAFETY ENDPOINT**
+        
+        Issues cryptographically signed control token for actuators
+        (traffic lights, access gates, emergency systems).
+        
+        **Safety Requirements:**
+        - All required approvals verified
+        - Token signed with HSM
+        - Expiry time enforced (max 5 minutes)
+        - Local controller validates token + runs safety checks
+        
+        **IEC 62443 Compliance:**
+        - Safety interlocks at local controller
+        - Conflict detection (e.g., no green-green)
+        - Fail-safe defaults
+        - Watchdog timers
+        
+      operationId: issueControlToken
+      tags:
+        - Control
+      
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ControlToken'
+      
+      responses:
+        '200':
+          description: Control token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action_id:
+                    type: string
+                  control_token:
+                    type: string
+                    description: Base64 encoded signed token
+                  signature:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+        
+        '400':
+          description: Insufficient approvals
+        
+        '403':
+          description: Unauthorized
+
+  /health:
+    get:
+      summary: Health check
+      description: Service health status
+      operationId: healthCheck
+      tags:
+        - Monitoring
+      security: []
+      
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  service:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: Metrics endpoint for Prometheus scraping
+      operationId: getMetrics
+      tags:
+        - Monitoring
+      security: []
+      
+      responses:
+        '200':
+          description: Metrics in Prometheus format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  securitySchemes:
+    mTLSAuth:
+      type: mutualTLS
+      description: |
+        Client certificates issued by Security AI Platform CA.
+        Terminated at Nginx/Envoy reverse proxy.
+        Client DN passed via X-SSL-CLIENT-S-DN header.
+    
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT token issued by central AuthN service.
+        Algorithm: HS256 (production: RS256 with public key rotation)
+        Expiry: 1 hour
+
+  schemas:
+    Location:
+      type: object
+      required: [lat, lon]
+      properties:
+        lat:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        lon:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        accuracy_m:
+          type: number
+          format: float
+          minimum: 0
+        altitude_m:
+          type: number
+          format: float
+    
+    IngestPayload:
+      type: object
+      required:
+        - device_id
+        - timestamp
+        - location
+        - encrypted_template
+        - template_type
+        - attestation
+      properties:
+        device_id:
+          type: string
+          description: Unique device identifier (must match mTLS cert CN)
+          example: "drone-fire-001"
+        timestamp:
+          type: string
+          format: date-time
+          description: Event timestamp (UTC)
+        location:
+          $ref: '#/components/schemas/Location'
+        encrypted_template:
+          type: string
+          description: |
+            Base64 encoded AES-256-GCM encrypted template.
+            Key: ephemeral AES key encrypted with gateway public RSA key.
+            Format: base64(encrypted_key || iv || ciphertext || tag)
+        template_type:
+          type: string
+          enum:
+            - face_embedding
+            - fire_detection
+            - vehicle_plate
+            - object_detection
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Device-specific metadata (confidence, quality, etc.)
+        attestation:
+          type: string
+          description: |
+            Base64 encoded device attestation token from TPM/Secure Enclave.
+            Contains: device_id, nonce, timestamp, TPM signature
+    
+    CaseCreationRequest:
+      type: object
+      required:
+        - event_id
+        - case_type
+        - priority
+        - evidence
+        - recommended_action
+      properties:
+        event_id:
+          type: string
+          example: "evt-20251127143000-drone-fire-001"
+        case_type:
+          type: string
+          enum:
+            - identity_match
+            - fire_alert
+            - police_alert
+            - traffic_control
+            - inec_assistance
+        priority:
+          type: string
+          enum: [low, medium, high, critical]
+        evidence:
+          type: object
+          description: Redacted evidence for operator review
+        recommended_action:
+          type: string
+          example: "Notify Fire Service HQ + dispatch unit"
+        requires_approval_count:
+          type: integer
+          minimum: 1
+          maximum: 3
+          default: 1
+          description: Number of operator approvals required
+    
+    OperatorApproval:
+      type: object
+      required:
+        - case_id
+        - operator_id
+        - decision
+        - justification
+      properties:
+        case_id:
+          type: string
+        operator_id:
+          type: string
+          description: Operator identifier from JWT
+        decision:
+          type: string
+          enum: [approve, reject, escalate]
+        justification:
+          type: string
+          minLength: 10
+          description: Required justification for decision
+        timestamp:
+          type: string
+          format: date-time
+    
+    ControlToken:
+      type: object
+      required:
+        - action_id
+        - target_controller
+        - action_type
+        - parameters
+        - approvals
+        - expires_at
+      properties:
+        action_id:
+          type: string
+          example: "act-20251127143500-traffic-001"
+        target_controller:
+          type: string
+          description: Target controller identifier
+          example: "traffic-light-igy-12"
+        action_type:
+          type: string
+          enum:
+            - traffic_phase_change
+            - alert_notification
+            - access_control
+            - emergency_stop
+        parameters:
+          type: object
+          description: Action-specific parameters
+          example:
+            phase: "pedestrian_crossing"
+            duration_seconds: 30
+        approvals:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatorApproval'
+          minItems: 1
+        expires_at:
+          type: string
+          format: date-time
+          description: Token expiry (max 5 minutes from issue)
+        signature:
+          type: string
+          description: HSM signature (populated by server)
+    
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+        status_code:
+          type: integer
+
+tags:
+  - name: Ingest
+    description: Edge device telemetry ingestion
+  - name: Cases
+    description: Operator review case management
+  - name: Control
+    description: Actuator control token issuance
+  - name: Monitoring
+    description: Health and metrics

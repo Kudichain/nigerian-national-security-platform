@@ -1,0 +1,1 @@
+"""Biometric authentication service module"""

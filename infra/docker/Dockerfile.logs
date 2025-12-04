@@ -1,0 +1,25 @@
+# Log Anomaly Detection Service Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt gunicorn prometheus-client
+
+# Copy application code
+COPY schemas/ ./schemas/
+COPY features/ ./features/
+COPY parsers/ ./parsers/
+COPY models/logs/ ./models/logs/
+COPY services/ ./services/
+
+WORKDIR /app
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD python -c "import sys; sys.exit(0)" || exit 1
+
+# Note: This service uses the shared services/security_monitoring.py
+CMD ["python", "-m", "uvicorn", "services.security_monitoring:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "2"]

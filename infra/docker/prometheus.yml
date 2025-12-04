@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'nids'
+    static_configs:
+      - targets: ['nids:8080']
+    metrics_path: '/metrics'
+
+  - job_name: 'phishing'
+    static_configs:
+      - targets: ['phishing:8081']
+    metrics_path: '/metrics'
+
+  - job_name: 'auth'
+    static_configs:
+      - targets: ['auth:8082']
+    metrics_path: '/metrics'
+
+  - job_name: 'logs'
+    static_configs:
+      - targets: ['logs:8083']
+    metrics_path: '/metrics'
+
+  - job_name: 'malware'
+    static_configs:
+      - targets: ['malware:8084']
+    metrics_path: '/metrics'

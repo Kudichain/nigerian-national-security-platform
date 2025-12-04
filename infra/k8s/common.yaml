@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sec-ai
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-storage-pvc
+  namespace: sec-ai
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sec-ai-config
+  namespace: sec-ai
+data:
+  LOG_LEVEL: "INFO"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.sec-ai.svc.cluster.local:9092"
+  REDIS_HOST: "redis.sec-ai.svc.cluster.local"
+  MLFLOW_TRACKING_URI: "http://mlflow.sec-ai.svc.cluster.local:5000"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sec-ai-secrets
+  namespace: sec-ai
+type: Opaque
+stringData:
+  aws-access-key: "YOUR_ACCESS_KEY"
+  aws-secret-key: "YOUR_SECRET_KEY"
+  postgres-password: "changeme"

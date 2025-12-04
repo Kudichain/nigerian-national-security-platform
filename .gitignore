@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# Environment
+.env
+.env.local
+
+# Models & Data
+models/**/*.pkl
+models/**/*.joblib
+models/**/*.pt
+models/**/*.pth
+models/**/*.h5
+models/**/*.onnx
+*.parquet
+*.csv
+*.json.gz
+data/
+mlruns/
+mlartifacts/
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Docker
+.dockerignore
+
+# Kubernetes secrets
+infra/k8s/secrets/
+
+# Terraform
+*.tfstate
+*.tfstate.backup
+.terraform/

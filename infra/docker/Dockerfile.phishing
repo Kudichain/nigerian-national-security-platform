@@ -1,0 +1,24 @@
+# Phishing Detection Service Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt gunicorn prometheus-client
+
+# Copy application code
+COPY schemas/ ./schemas/
+COPY features/ ./features/
+COPY parsers/ ./parsers/
+COPY models/phishing/ ./models/phishing/
+COPY services/phishing/ ./service/
+
+WORKDIR /app/service
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD python -c "import requests; requests.get('http://localhost:8080/health').raise_for_status()" || exit 1
+
+CMD ["gunicorn", "app:app", "-b", "0.0.0.0:8080", "--workers=2", "--timeout=30", "--worker-class=uvicorn.workers.UvicornWorker"]
