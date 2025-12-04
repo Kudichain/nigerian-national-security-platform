@@ -240,7 +240,7 @@ export default function Dashboard() {
           alignItems: 'center',
           gap: 2
         }}>
-          🇺🇸 National Security Command Center
+          National Security Command Center
         </Typography>
         <Typography variant="h6" sx={{ color: 'rgba(255,255,255,0.95)' }}>
           Real-Time Intelligence & Threat Monitoring System
